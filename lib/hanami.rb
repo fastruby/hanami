@@ -99,6 +99,11 @@ module Hanami
   # @api public
   # @since 2.0.0
   def self.app
+    # The app class is assigned once and never replaced, so once set it can be returned without
+    # the mutex. This also lets non-main Ractors call this method, since they can't access the
+    # (unshareable) mutex.
+    return @_app if defined?(@_app)
+
     @_mutex.synchronize do
       unless defined?(@_app)
         raise AppLoadError,
