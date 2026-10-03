@@ -31,36 +31,39 @@ module Hanami
 
         private
 
+        # Methods below are defined from strings rather than blocks so they don't capture
+        # closures, which makes them callable from non-main Ractors. Inside them,
+        # `Module.nesting.first` is this module, even when several slice-configured action
+        # modules are stacked in the class's ancestry.
+
         # @see Hanami::Extensions::Action::InstanceMethods#initialize
         def define_new
-          resolve_view = method(:resolve_paired_view)
-          view_context_class = method(:view_context_class)
-          resolve_routes = method(:resolve_routes)
-          resolve_rack_monitor = method(:resolve_rack_monitor)
-          resolve_i18n = method(:resolve_i18n)
+          module_eval(<<~RUBY, __FILE__, __LINE__ + 1)
+            def new(**kwargs)
+              slice_configured_action = Module.nesting.first
 
-          define_method(:new) do |**kwargs|
-            super(
-              view: kwargs.fetch(:view) { resolve_view.(self) },
-              view_context_class: kwargs.fetch(:view_context_class) { view_context_class.() },
-              routes: kwargs.fetch(:routes) { resolve_routes.() },
-              rack_monitor: kwargs.fetch(:rack_monitor) { resolve_rack_monitor.() },
-              i18n: kwargs.fetch(:i18n) { resolve_i18n.() },
-              **kwargs,
-            )
-          end
+              super(
+                view: kwargs.fetch(:view) { slice_configured_action.send(:resolve_paired_view, self) },
+                view_context_class: kwargs.fetch(:view_context_class) { slice_configured_action.send(:view_context_class) },
+                routes: kwargs.fetch(:routes) { slice_configured_action.send(:resolve_routes) },
+                rack_monitor: kwargs.fetch(:rack_monitor) { slice_configured_action.send(:resolve_rack_monitor) },
+                i18n: kwargs.fetch(:i18n) { slice_configured_action.send(:resolve_i18n) },
+                **kwargs,
+              )
+            end
+          RUBY
         end
 
         # Defines an `inherited` hook on this module so each subclass of the slice-configured
         # action gets its own `config.i18n_key_base`, inferred from its class name. Mirrors the
         # approach used by `SliceConfiguredView` for `config.template`.
         def define_inherited
-          configure_action_i18n = method(:configure_action_i18n)
-
-          define_method(:inherited) do |subclass|
-            super(subclass)
-            configure_action_i18n.call(subclass)
-          end
+          module_eval(<<~RUBY, __FILE__, __LINE__ + 1)
+            def inherited(subclass)
+              super
+              Module.nesting.first.send(:configure_action_i18n, subclass)
+            end
+          RUBY
         end
 
         def configure_action(action_class)
